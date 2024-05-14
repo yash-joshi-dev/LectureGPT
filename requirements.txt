@@ -1,0 +1,9 @@
+cohere
+python-dotenv
+langchain
+annoy
+numpy
+pandas
+gradio
+assemblyai
+unstructured
