@@ -40,9 +40,7 @@ def create_search_index(audio):
   
 
 def process_query(query, audio):
-
   chunks, search_index = create_search_index(audio)
-  print("done creatign index")
 
   query_emb = co.embed(texts=[query], model='embed-english-v2.0').embeddings
 
@@ -77,7 +75,7 @@ def process_query(query, audio):
       num_generations=1
   )
 
-  return prediction.generations[0], context
+  return prediction.generations[0].text, context
 
 
 
@@ -85,9 +83,9 @@ def main():
   demo = gr.Interface(
     process_query,
     inputs=["text", gr.Audio(type="filepath", label="Talk about something")],
-    outputs=["text", "text"],
-    title="Document QA Chatbot",
-    description="Give a pdf document to ask questions about. If not given, will have the context of the 'Alice In Wonderland' book."
+    outputs=[gr.Text(label="Response"), gr.Text(label="Prompt")],
+    title="LectureGPT",
+    description="Give me an audio recording of a lecture and I will help you figure it out."
   )
 
   demo.launch()
