@@ -77,7 +77,7 @@ def process_query(query, audio):
       num_generations=1
   )
 
-  return prediction.generations[0]
+  return prediction.generations[0], context
 
 
 
