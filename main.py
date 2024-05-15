@@ -6,13 +6,13 @@ from annoy import AnnoyIndex
 import gradio as gr
 import cohere
 import numpy as np
-import pandas as pd
 import os
 from dotenv import load_dotenv
 load_dotenv()
 co = cohere.Client(os.environ['COHERE_API_KEY'])
 
-def create_search_index(audio):
+# create document chunks of audio file
+def create_chunks(audio):
   if audio is None:
     raise gr.Error("Must pass audio file.")
   loader = AssemblyAIAudioTranscriptLoader(file_path=audio, api_key=os.environ['ASSEMBLY_AI_API_KEY'])
@@ -24,39 +24,51 @@ def create_search_index(audio):
     add_start_index=True
   )
   chunks = text_splitter.split_documents(documents)
-  # print(len(chunks))
-  response = co.embed(texts=[x.page_content for x in chunks], model='embed-english-v2.0').embeddings
-  embeddings = np.array(response)
+  return np.array(chunks)
+
+# create the embeddings of the document chunks
+def create_embeddings(chunks):
+  response = co.embed(
+    texts=[x.page_content for x in chunks],
+    model='embed-english-v2.0'
+  ).embeddings
+  return np.array(response)
+
+# create the search index and add the embeddings to it
+def create_search_index(embeddings):
 
   search_index = AnnoyIndex(embeddings.shape[1], 'angular')
 
   for i in range(len(embeddings)):
     search_index.add_item(i, embeddings[i])
 
-  search_index.build(10) # 10 trees
-  search_index.save('test.ann')
-  return np.array(chunks), search_index
+  # 10 trees
+  search_index.build(10)
+  return search_index
 
-  
+# retrieve the ranked, relevant context from the search index as a string
+def retrieve_context(query, search_index: AnnoyIndex, chunks):
 
-def process_query(query, audio):
-  chunks, search_index = create_search_index(audio)
-
+  # embed the query
   query_emb = co.embed(texts=[query], model='embed-english-v2.0').embeddings
 
-  # get nearest neighbors
+  # get 10 nearest neighbors
   similar_item_ids = search_index.get_nns_by_vector(query_emb[0], 10, include_distances=True)
   results = chunks[similar_item_ids[0]]
-  # print(results)
 
   # rerank
-  reranked_results = co.rerank(model='rerank-english-v2.0', query=query, documents=[x.page_content for x in chunks], top_n=3)
+  reranked_results = co.rerank(
+    model='rerank-english-v2.0',
+    query=query,
+    documents=[x.page_content for x in chunks],
+    top_n=3
+  )
 
   # Print the reranked results
-  context = "\n\n----\n\n".join([c.page_content for c in chunks[[r.index for r in reranked_results.results]]])
+  return "\n\n----\n\n".join([c.page_content for c in chunks[[r.index for r in reranked_results.results]]])
 
-  # prompt the latest cohere model
-  # Prepare the prompt
+# prompt the latest (nightly release) cohere model for the answer, provided context
+def retrieve_answer(query, context):
   prompt = f"""
     Excerpts from an audio recording (could be overlapping): 
     {context}
@@ -75,9 +87,16 @@ def process_query(query, audio):
       num_generations=1
   )
 
-  return prediction.generations[0].text, context
+  return prediction.generations[0].text
 
-
+# process a particular query about a particular audio file
+def process_query(query, audio):
+  chunks = create_chunks(audio)
+  embeddings = create_embeddings(chunks)
+  search_index = create_search_index(embeddings)
+  context = retrieve_context(query, search_index, chunks)
+  response = retrieve_answer(query, context)
+  return response, context
 
 def main():
   demo = gr.Interface(
